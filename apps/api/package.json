@@ -14,7 +14,8 @@
     "@repo/id": "workspace:*",
     "@repo/logs": "workspace:*",
     "@repo/typescript-config": "workspace:*",
-    "hono": "^4",
+    "hono": "^4.7.2",
+    "openai": "^4.86.1",
     "svix": "^1.59.1",
     "vitest": "^3.0.6",
     "zod": "^3.24.2"

@@ -1,6 +1,7 @@
 import { apiRpc, getApiClient, InferRequestType } from "./client";
 
-const $createPost = apiRpc.posts.$post;
+// Using underscore prefix to indicate it is only used for type inference
+const _$createPost = apiRpc.posts.$post;
 
 export async function getPosts() {
   const client = await getApiClient();
@@ -9,7 +10,7 @@ export async function getPosts() {
   return response.json();
 }
 
-export type CreatePostParams = InferRequestType<typeof $createPost>["json"];
+export type CreatePostParams = InferRequestType<typeof _$createPost>["json"];
 export async function createPost(params: CreatePostParams) {
   const client = await getApiClient();
 
