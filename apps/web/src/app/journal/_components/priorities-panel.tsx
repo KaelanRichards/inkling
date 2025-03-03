@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Loader2, Plus, Check, X, ArrowUp, ArrowDown, Trash2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { motion, AnimatePresence } from "framer-motion";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -93,6 +94,7 @@ export function PrioritiesPanel() {
   // Generate priorities from journal entries
   const handleGeneratePriorities = async () => {
     setIsGenerating(true);
+    toast.info("Analyzing your journal entries...");
     
     try {
       await getDailySummary();
@@ -153,12 +155,21 @@ export function PrioritiesPanel() {
             onClick={handleGeneratePriorities}
             disabled={isGenerating}
             title="Generate priorities from journal entries"
-            className="text-primary"
+            className="text-primary relative"
           >
             {isGenerating ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
-              <Sparkles className="size-4" />
+              <>
+                <Sparkles className="size-4" />
+                <span className="sr-only">Generate priorities</span>
+                <motion.span 
+                  className="absolute -top-1 -right-1 size-2 bg-primary rounded-full"
+                  initial={{ scale: 0 }}
+                  animate={{ scale: [0, 1.5, 1] }}
+                  transition={{ duration: 1, repeat: Infinity, repeatType: "reverse" }}
+                />
+              </>
             )}
           </Button>
         </CardTitle>
@@ -209,42 +220,51 @@ export function PrioritiesPanel() {
                   In Progress ({pendingPriorities.length})
                 </div>
                 <ul className="space-y-2">
-                  {pendingPriorities.map((priority) => (
-                    <li key={priority.id} className="flex items-start gap-2 group">
-                      <Checkbox
-                        checked={priority.completed}
-                        onCheckedChange={() => handleToggleCompletion(priority.id, priority.completed)}
-                        className="mt-1"
-                      />
-                      <div className="flex-1 text-sm">{priority.content}</div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-6"
-                          onClick={() => handleRankChange(priority.id, "up")}
-                        >
-                          <ArrowUp className="size-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-6"
-                          onClick={() => handleRankChange(priority.id, "down")}
-                        >
-                          <ArrowDown className="size-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-6 text-destructive"
-                          onClick={() => handleDelete(priority.id)}
-                        >
-                          <Trash2 className="size-3" />
-                        </Button>
-                      </div>
-                    </li>
-                  ))}
+                  <AnimatePresence>
+                    {pendingPriorities.map((priority) => (
+                      <motion.li 
+                        key={priority.id} 
+                        className="flex items-start gap-2 group"
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <Checkbox
+                          checked={priority.completed}
+                          onCheckedChange={() => handleToggleCompletion(priority.id, priority.completed)}
+                          className="mt-1"
+                        />
+                        <div className="flex-1 text-sm">{priority.content}</div>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-6"
+                            onClick={() => handleRankChange(priority.id, "up")}
+                          >
+                            <ArrowUp className="size-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-6"
+                            onClick={() => handleRankChange(priority.id, "down")}
+                          >
+                            <ArrowDown className="size-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-6 text-destructive"
+                            onClick={() => handleDelete(priority.id)}
+                          >
+                            <Trash2 className="size-3" />
+                          </Button>
+                        </div>
+                      </motion.li>
+                    ))}
+                  </AnimatePresence>
                 </ul>
               </div>
             )}
@@ -252,28 +272,37 @@ export function PrioritiesPanel() {
             {/* Completed priorities */}
             {completedPriorities.length > 0 && (
               <div className="space-y-2">
-                <div className="text-sm font-medium text-muted-foreground flex items-center">
-                  <span>Completed ({completedPriorities.length})</span>
+                <div className="text-sm font-medium text-muted-foreground">
+                  Completed ({completedPriorities.length})
                 </div>
                 <ul className="space-y-2">
-                  {completedPriorities.map((priority) => (
-                    <li key={priority.id} className="flex items-start gap-2 group text-muted-foreground">
-                      <Checkbox
-                        checked={priority.completed}
-                        onCheckedChange={() => handleToggleCompletion(priority.id, priority.completed)}
-                        className="mt-1"
-                      />
-                      <div className="flex-1 text-sm line-through">{priority.content}</div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-6 opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
-                        onClick={() => handleDelete(priority.id)}
+                  <AnimatePresence>
+                    {completedPriorities.map((priority) => (
+                      <motion.li 
+                        key={priority.id} 
+                        className="flex items-start gap-2 group opacity-60"
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 0.6, y: 0 }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2 }}
                       >
-                        <Trash2 className="size-3" />
-                      </Button>
-                    </li>
-                  ))}
+                        <Checkbox
+                          checked={priority.completed}
+                          onCheckedChange={() => handleToggleCompletion(priority.id, priority.completed)}
+                          className="mt-1"
+                        />
+                        <div className="flex-1 text-sm line-through">{priority.content}</div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => handleDelete(priority.id)}
+                        >
+                          <Trash2 className="size-3" />
+                        </Button>
+                      </motion.li>
+                    ))}
+                  </AnimatePresence>
                 </ul>
               </div>
             )}

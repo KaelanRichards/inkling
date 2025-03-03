@@ -1,44 +1,37 @@
 import { apiRpc, getApiClient, InferRequestType } from "./client";
 
-// Define the RPC endpoints
-// Using underscore prefix to indicate these are only used for type inference
-const _$getJournalEntries = apiRpc.journal.$get;
-const _$getJournalEntriesByDate = apiRpc.journal["by-date"].$get;
-const _$getJournalEntry = apiRpc.journal[":id"].$get;
-const _$createJournalEntry = apiRpc.journal.$post;
-const _$updateJournalEntry = apiRpc.journal[":id"].$put;
-const _$deleteJournalEntry = apiRpc.journal[":id"].$delete;
-
-// Export parameter types for use in components
-export type CreateJournalEntryParams = {
+// Define types for API parameters
+interface CreateJournalEntryParams {
   content: string;
   date: string;
-};
-export type UpdateJournalEntryParams = InferRequestType<typeof _$updateJournalEntry>["json"];
+}
+
+interface UpdateJournalEntryParams {
+  content: string;
+}
 
 // Get all journal entries with pagination
-export async function getJournalEntries(limit?: number, offset?: number) {
+export async function getJournalEntries(limit = 20, offset = 0) {
   const client = await getApiClient();
-  const query: Record<string, string> = {};
-  
-  if (limit !== undefined) {
-    query.limit = limit.toString();
-  }
-  
-  if (offset !== undefined) {
-    query.offset = offset.toString();
-  }
+  const query: Record<string, string> = {
+    limit: String(limit),
+    offset: String(offset)
+  };
   
   const response = await client.journal.$get({ query });
   return response.json();
 }
 
-// Get journal entries by date
-export async function getJournalEntriesByDate(date: string) {
+// Get journal entries by date with pagination
+export async function getJournalEntriesByDate(date: string, limit = 20, offset = 0) {
   const client = await getApiClient();
-  const response = await client.journal["by-date"].$get({ 
-    query: { date } 
-  });
+  const query: Record<string, string> = {
+    date,
+    limit: String(limit),
+    offset: String(offset)
+  };
+  
+  const response = await client.journal["by-date"].$get({ query });
   return response.json();
 }
 
@@ -54,24 +47,18 @@ export async function getJournalEntry(id: number) {
 // Create a new journal entry
 export async function createJournalEntry(params: CreateJournalEntryParams) {
   const client = await getApiClient();
-  // Convert string date to Date object if needed by the API
-  const apiParams = {
-    content: params.content,
-    date: new Date(params.date)
-  };
-  
   const response = await client.journal.$post({ 
-    json: apiParams 
+    json: params
   });
   return response.json();
 }
 
 // Update a journal entry
-export async function updateJournalEntry(id: number, params: UpdateJournalEntryParams) {
+export async function updateJournalEntry(id: number, content: string) {
   const client = await getApiClient();
   const response = await client.journal[":id"].$put({
     param: { id: id.toString() },
-    json: params 
+    json: { content } 
   });
   return response.json();
 }

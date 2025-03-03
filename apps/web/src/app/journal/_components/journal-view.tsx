@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Loader2, Calendar, Send, Trash2, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
@@ -38,25 +38,75 @@ interface JournalEntryResponse {
   [key: string]: unknown;
 }
 
+// Define pagination parameters
+interface PaginationParams {
+  date: string;
+  limit: number;
+  offset: number;
+}
+
 export function JournalView() {
   const queryClient = useQueryClient();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [newEntry, setNewEntry] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
   
   // Format the selected date for API requests
   const formattedDate = format(selectedDate, "yyyy-MM-dd");
   
-  // Fetch journal entries for the selected date
+  // Fetch journal entries for the selected date with infinite query
   const { 
-    data: journalEntries = [] as JournalEntry[], 
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
     isLoading,
     isError,
     error
-  } = useQuery({
+  } = useInfiniteQuery({
     queryKey: ["journalEntries", formattedDate],
-    queryFn: () => getJournalEntriesByDate(formattedDate)
+    queryFn: async ({ pageParam = 0 }) => {
+      return getJournalEntriesByDate(formattedDate, 10, pageParam);
+    },
+    getNextPageParam: (lastPage, allPages) => {
+      // If we got fewer entries than the limit, there are no more pages
+      return lastPage.length === 10 ? allPages.flat().length : undefined;
+    },
+    initialPageParam: 0
   });
+  
+  // Flatten the pages of entries
+  const journalEntries = data?.pages.flat() || [];
+  
+  // Setup intersection observer for infinite scroll
+  useEffect(() => {
+    if (loadMoreRef.current && hasNextPage) {
+      observerRef.current = new IntersectionObserver(
+        (entries) => {
+          if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+            fetchNextPage();
+          }
+        },
+        { threshold: 0.5 }
+      );
+      
+      observerRef.current.observe(loadMoreRef.current);
+    }
+    
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [loadMoreRef.current, hasNextPage, isFetchingNextPage, fetchNextPage]);
+  
+  // Reset pagination when date changes
+  useEffect(() => {
+    // Reset the query when the date changes
+    queryClient.resetQueries({ queryKey: ["journalEntries", formattedDate] });
+  }, [formattedDate, queryClient]);
   
   // Create a new journal entry
   const createEntryMutation = useMutation({
@@ -71,14 +121,17 @@ export function JournalView() {
       // Analyze the new entry with AI
       try {
         if (data && data.id) {
+          toast.info("Analyzing your entry...");
           await analyzeJournalEntry(data.id);
           // Invalidate priorities to show newly extracted priorities
           queryClient.invalidateQueries({ queryKey: ["priorities", formattedDate] });
           // Invalidate clarifying questions
           queryClient.invalidateQueries({ queryKey: ["clarifyingQuestions"] });
+          toast.success("Analysis complete");
         }
       } catch (error) {
         console.error("Error analyzing journal entry:", error);
+        toast.error("Error analyzing your entry");
       }
       
       toast.success("Journal entry added");
@@ -139,6 +192,13 @@ export function JournalView() {
       }
     }
   };
+  
+  // Handle loading more entries
+  const handleLoadMore = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
   
   return (
     <div className="space-y-8">
@@ -234,14 +294,27 @@ export function JournalView() {
               </Card>
             ))}
             
-            {journalEntries.length > 5 && (
-              <div className="flex justify-center mt-4">
-                <Button variant="ghost" size="sm" className="text-muted-foreground flex items-center gap-1">
+            {/* Infinite scroll loading indicator */}
+            <div 
+              ref={loadMoreRef} 
+              className="flex justify-center py-4"
+            >
+              {isFetchingNextPage ? (
+                <Loader2 className="size-6 animate-spin text-muted-foreground" />
+              ) : hasNextPage ? (
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="text-muted-foreground flex items-center gap-1"
+                  onClick={handleLoadMore}
+                >
                   <ChevronDown className="size-4" />
-                  <span>Show more</span>
+                  <span>Load more</span>
                 </Button>
-              </div>
-            )}
+              ) : journalEntries.length > 0 ? (
+                <span className="text-sm text-muted-foreground">No more entries</span>
+              ) : null}
+            </div>
           </div>
         )}
       </div>

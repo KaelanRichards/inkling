@@ -18,9 +18,11 @@ const updateJournalEntrySchema = z.object({
   content: z.string().min(1)
 });
 
-// For date-based queries
-const dateQuerySchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) // YYYY-MM-DD format
+// For date-based queries with pagination
+const dateQueryWithPaginationSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), // YYYY-MM-DD format
+  limit: z.string().regex(/^\d+$/).transform(Number).optional(),
+  offset: z.string().regex(/^\d+$/).transform(Number).optional()
 });
 
 // For pagination
@@ -43,11 +45,11 @@ export const journalRoutes = new Hono()
     const entries = await journalService.getJournalEntries(userId, limit, offset);
     return c.json(entries);
   })
-  // Get entries by date
-  .get("/by-date", zValidator("query", dateQuerySchema), async (c) => {
+  // Get entries by date with pagination
+  .get("/by-date", zValidator("query", dateQueryWithPaginationSchema), async (c) => {
     const userId = getUserId(c);
-    const { date } = c.req.valid("query");
-    const entries = await journalService.getJournalEntriesByDate(userId, new Date(date));
+    const { date, limit, offset } = c.req.valid("query");
+    const entries = await journalService.getJournalEntriesByDate(userId, new Date(date), limit, offset);
     return c.json(entries);
   })
   // Get a specific entry

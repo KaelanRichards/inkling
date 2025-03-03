@@ -1,6 +1,16 @@
-import { db, eq, and, desc, journalEntries, type NewJournalEntry } from "@repo/db";
+import { db, eq, and, desc, journalEntries, type NewJournalEntry, type JournalEntry } from "@repo/db";
 
-export const journalService = {
+// Define a service type to avoid the postgres types reference error
+type JournalService = {
+  getJournalEntries(userId: string, limit?: number, offset?: number): Promise<JournalEntry[]>;
+  getJournalEntriesByDate(userId: string, date: Date, limit?: number, offset?: number): Promise<JournalEntry[]>;
+  getJournalEntryById(id: number, userId: string): Promise<JournalEntry | undefined>;
+  createJournalEntry(data: Omit<NewJournalEntry, "id" | "createdAt" | "updatedAt">): Promise<JournalEntry | undefined>;
+  updateJournalEntry(id: number, userId: string, content: string): Promise<JournalEntry | undefined>;
+  deleteJournalEntry(id: number, userId: string): Promise<unknown>;
+};
+
+export const journalService: JournalService = {
   async getJournalEntries(userId: string, limit = 50, offset = 0) {
     return db
       .select()
@@ -11,7 +21,7 @@ export const journalService = {
       .offset(offset);
   },
 
-  async getJournalEntriesByDate(userId: string, date: Date) {
+  async getJournalEntriesByDate(userId: string, date: Date, limit = 50, offset = 0) {
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
     
@@ -28,7 +38,9 @@ export const journalService = {
           // based on your database's capabilities
         )
       )
-      .orderBy(desc(journalEntries.date));
+      .orderBy(desc(journalEntries.date))
+      .limit(limit)
+      .offset(offset);
   },
 
   async getJournalEntryById(id: number, userId: string) {
