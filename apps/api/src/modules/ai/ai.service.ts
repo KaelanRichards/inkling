@@ -26,13 +26,13 @@ export const aiService = {
     
     const entry = entryResults[0];
     
-    // Get recent journal entries for context (last 5 entries)
+    // Get recent journal entries for context (last 10 entries)
     const recentEntries = await db
       .select()
       .from(journalEntries)
       .where(eq(journalEntries.userId, userId))
       .orderBy(desc(journalEntries.date))
-      .limit(5);
+      .limit(10);
     
     // Get recent context entities to provide context
     const recentEntities = await db
@@ -40,14 +40,14 @@ export const aiService = {
       .from(contextEntities)
       .where(eq(contextEntities.userId, userId))
       .orderBy(desc(contextEntities.updatedAt))
-      .limit(15);
+      .limit(20);
     
     // Get existing entity relationships
     const entityRelationshipsData = await db
       .select()
       .from(entityRelationships)
       .where(eq(entityRelationships.userId, userId))
-      .limit(20);
+      .limit(30);
     
     // Format relationships for context
     const formattedRelationships = entityRelationshipsData.map(rel => {
@@ -64,177 +64,233 @@ export const aiService = {
       return null;
     }).filter(Boolean);
     
+    // Get existing clarifying questions and answers
+    const existingQuestions = await db
+      .select()
+      .from(clarifyingQuestions)
+      .where(eq(clarifyingQuestions.userId, userId))
+      .orderBy(desc(clarifyingQuestions.updatedAt))
+      .limit(10);
+    
     // Analyze the entry with OpenAI
     const response = await openai.chat.completions.create({
       model: "gpt-4-turbo",
       messages: [
         {
           role: "system",
-          content: `You are an AI assistant for a journaling app designed for startup CTOs and executives. 
-          Your task is to analyze journal entries and extract:
-          
-          1. Key priorities (actionable items)
-             - Focus on concrete, actionable tasks that the user needs to accomplish
-             - Prioritize items that seem urgent or important based on context
-             - Ensure priorities are specific and clear enough to be actionable
-          
-          2. Important entities (people, roles, projects, products, strategies)
-             - Extract entities mentioned in the entry with their relationships
-             - For people: include their role if mentioned
-             - For projects/products: include their status or phase if mentioned
-             - For strategies: capture key objectives or goals
-          
-          3. Entity relationships
-             - Identify how entities relate to each other
-             - Examples: "manages", "reports_to", "part_of", "leads", "depends_on"
-          
-          4. Potential clarifying questions
-             - Ask questions that would help build a better mental model
-             - Focus on ambiguities or gaps in the user's context
-             - Questions should be specific and directly relevant to the entry
-          
-          Format your response as JSON with the following structure:
-          {
-            "priorities": [
-              { "content": "string", "rank": number }
-            ],
-            "entities": [
-              { "type": "person|role|project|product|strategy", "name": "string", "description": "string" }
-            ],
-            "relationships": [
-              { "sourceEntityName": "string", "targetEntityName": "string", "relationshipType": "string" }
-            ],
-            "clarifyingQuestions": [
-              { "question": "string" }
-            ]
-          }
-          
-          Limit to 3-5 priorities, ranked by importance (1 being highest).
-          Limit to 0-5 entities that are clearly mentioned.
-          Limit to 0-3 relationships between entities.
-          Limit to 0-2 clarifying questions that would help build better context.`
+          content: `You are an AI assistant for Inkling, an intelligent journaling app designed specifically for startup CTOs and executives. Your role is to help them streamline daily management of priorities, build a robust mental model of their context, and proactively surface actionable insights.
+
+Your task is to analyze journal entries and extract:
+
+1. Key priorities (actionable items)
+   - Focus on concrete, actionable tasks that the user needs to accomplish
+   - Prioritize items that seem urgent or important based on context
+   - Ensure priorities are specific and clear enough to be actionable
+   - Rank them by importance (1 being highest priority)
+   - Limit to 3-5 most important priorities
+
+2. Important entities (people, roles, projects, products, strategies)
+   - Extract entities mentioned in the entry with their relationships
+   - For people: include their role if mentioned
+   - For projects/products: include their status or phase if mentioned
+   - For strategies: capture key objectives or goals
+   - Only extract entities that are significant to the user's context
+
+3. Entity relationships
+   - Identify how entities relate to each other
+   - Examples: "manages", "reports_to", "part_of", "leads", "depends_on"
+   - Focus on relationships that help build a coherent mental model
+
+4. Potential clarifying questions
+   - Ask questions that would help build a better mental model
+   - Focus on ambiguities or gaps in the user's context
+   - Questions should be specific and directly relevant to the entry
+   - Prioritize questions that would help understand the user's priorities and challenges
+   - Limit to 1-2 most important questions
+
+Format your response as JSON with the following structure:
+{
+  "priorities": [
+    { "content": "string", "rank": number }
+  ],
+  "entities": [
+    { "type": "person|role|project|product|strategy", "name": "string", "description": "string" }
+  ],
+  "relationships": [
+    { "sourceType": "string", "sourceName": "string", "relationshipType": "string", "targetType": "string", "targetName": "string" }
+  ],
+  "clarifyingQuestions": [
+    { "question": "string" }
+  ]
+}`
         },
         {
-          role: "user", 
-          content: `Here is my journal entry: "${entry?.content}"
-          
-          ${recentEntries.length > 1 ? `For context, here are my recent journal entries:
-          ${recentEntries.slice(1).map(e => `- ${e.content}`).join('\n')}` : ""}
-          
-          ${recentEntities.length > 0 ? `For context, here are some entities I've mentioned before: 
-          ${JSON.stringify(recentEntities.map(e => ({ type: e.type, name: e.name, description: e.description })))}` : ""}
-          
-          ${formattedRelationships.length > 0 ? `For context, here are some known relationships between entities:
-          ${JSON.stringify(formattedRelationships)}` : ""}
-          
-          Please analyze this entry and extract priorities, entities, relationships, and potential clarifying questions.`
+          role: "user",
+          content: `Here is my latest journal entry:
+${entry?.content || ""}
+
+Here is some context from my recent journal entries:
+${recentEntries.map(e => `[${new Date(e.date).toLocaleDateString()}] ${e.content}`).join('\n\n')}
+
+Here are some entities in my context:
+${recentEntities.map(e => `[${e.type}] ${e.name}: ${e.description || 'No description'}`).join('\n')}
+
+Here are some relationships between entities:
+${formattedRelationships.map(r => `${r?.source.type} "${r?.source.name}" ${r?.relationship} ${r?.target.type} "${r?.target.name}"`).join('\n')}
+
+Here are some questions I've answered previously:
+${existingQuestions.filter(q => q.answer).map(q => `Q: ${q.question}\nA: ${q.answer || ''}`).join('\n\n')}
+
+Please analyze this information and extract priorities, entities, relationships, and clarifying questions.`
         }
       ],
-      response_format: { type: "json_object" }
+      response_format: { type: "json_object" },
+      temperature: 0.2,
     });
     
-    // Parse the response
-    const analysis = JSON.parse(response.choices[0]?.message.content ?? "{}");
+    const analysisResult = JSON.parse(response.choices[0].message.content);
     
-    // Store the extracted priorities
-    if (analysis.priorities && analysis.priorities.length > 0) {
-      for (const priority of analysis.priorities) {
+    // Process the extracted priorities
+    if (analysisResult.priorities && analysisResult.priorities.length > 0) {
+      // Get the current date
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      // Insert each priority
+      for (const priority of analysisResult.priorities) {
         await db.insert(priorities).values({
           content: priority.content,
           rank: priority.rank,
-          journalEntryId: entry?.id ?? null,
+          date: today,
           userId,
-          date: entry?.date ?? new Date(),
-        } as NewPriority);
+          journalEntryId: entry?.id || 0,
+          completed: false
+        });
       }
     }
     
-    // Store the extracted entities
-    const newEntities = new Map();
-    if (analysis.entities && analysis.entities.length > 0) {
-      for (const entity of analysis.entities) {
-        // Check if entity already exists
-        const existingEntities = await db
+    // Process the extracted entities
+    if (analysisResult.entities && analysisResult.entities.length > 0) {
+      for (const entity of analysisResult.entities) {
+        // Check if the entity already exists
+        const existingEntity = await db
           .select()
           .from(contextEntities)
           .where(
             and(
               eq(contextEntities.userId, userId),
-              eq(contextEntities.name, entity.name),
-              eq(contextEntities.type, entity.type)
+              eq(contextEntities.type, entity.type),
+              eq(contextEntities.name, entity.name)
             )
-          );
+          )
+          .limit(1);
         
-        if (existingEntities.length === 0) {
+        if (existingEntity.length === 0) {
           // Insert new entity
-          const results = await db.insert(contextEntities).values({
+          await db.insert(contextEntities).values({
             type: entity.type,
             name: entity.name,
             description: entity.description || "",
-            userId,
-          } as NewContextEntity).returning();
-          
-          if (results.length > 0) {
-            newEntities.set(entity.name, results[0].id);
-          }
-        } else {
-          // Update existing entity if description has changed
-          if (entity.description && entity.description !== existingEntities[0].description) {
-            await db.update(contextEntities)
-              .set({ description: entity.description, updatedAt: new Date() })
-              .where(eq(contextEntities.id, existingEntities[0].id));
-          }
-          newEntities.set(entity.name, existingEntities[0].id);
+            userId
+          });
+        } else if (entity.description && entity.description !== existingEntity[0].description) {
+          // Update existing entity with new description if it has changed
+          await db
+            .update(contextEntities)
+            .set({ 
+              description: entity.description,
+              updatedAt: new Date()
+            })
+            .where(eq(contextEntities.id, existingEntity[0].id));
         }
       }
     }
     
-    // Store the relationships
-    if (analysis.relationships && analysis.relationships.length > 0) {
-      for (const relationship of analysis.relationships) {
-        // Get entity IDs
-        const sourceEntityId = newEntities.get(relationship.sourceEntityName);
-        const targetEntityId = newEntities.get(relationship.targetEntityName);
+    // Process the extracted relationships
+    if (analysisResult.relationships && analysisResult.relationships.length > 0) {
+      for (const relationship of analysisResult.relationships) {
+        // Find the source entity
+        const sourceEntity = await db
+          .select()
+          .from(contextEntities)
+          .where(
+            and(
+              eq(contextEntities.userId, userId),
+              eq(contextEntities.type, relationship.sourceType),
+              eq(contextEntities.name, relationship.sourceName)
+            )
+          )
+          .limit(1);
         
-        if (sourceEntityId && targetEntityId) {
-          // Check if relationship already exists
-          const existingRelationships = await db
+        // Find the target entity
+        const targetEntity = await db
+          .select()
+          .from(contextEntities)
+          .where(
+            and(
+              eq(contextEntities.userId, userId),
+              eq(contextEntities.type, relationship.targetType),
+              eq(contextEntities.name, relationship.targetName)
+            )
+          )
+          .limit(1);
+        
+        // Only create the relationship if both entities exist
+        if (sourceEntity.length > 0 && targetEntity.length > 0) {
+          // Check if the relationship already exists
+          const existingRelationship = await db
             .select()
             .from(entityRelationships)
             .where(
               and(
                 eq(entityRelationships.userId, userId),
-                eq(entityRelationships.sourceEntityId, sourceEntityId),
-                eq(entityRelationships.targetEntityId, targetEntityId),
+                eq(entityRelationships.sourceEntityId, sourceEntity[0].id),
+                eq(entityRelationships.targetEntityId, targetEntity[0].id),
                 eq(entityRelationships.relationshipType, relationship.relationshipType)
               )
-            );
+            )
+            .limit(1);
           
-          if (existingRelationships.length === 0) {
+          if (existingRelationship.length === 0) {
             // Insert new relationship
             await db.insert(entityRelationships).values({
-              sourceEntityId,
-              targetEntityId,
+              sourceEntityId: sourceEntity[0].id,
+              targetEntityId: targetEntity[0].id,
               relationshipType: relationship.relationshipType,
-              userId,
-            } as NewEntityRelationship);
+              userId
+            });
           }
         }
       }
     }
     
-    // Store the clarifying questions
-    if (analysis.clarifyingQuestions && analysis.clarifyingQuestions.length > 0) {
-      for (const question of analysis.clarifyingQuestions) {
-        await db.insert(clarifyingQuestions).values({
-          question: question.question,
-          status: "pending",
-          userId,
-        } as NewClarifyingQuestion);
+    // Process the clarifying questions
+    if (analysisResult.clarifyingQuestions && analysisResult.clarifyingQuestions.length > 0) {
+      for (const question of analysisResult.clarifyingQuestions) {
+        // Check if the question already exists
+        const existingQuestion = await db
+          .select()
+          .from(clarifyingQuestions)
+          .where(
+            and(
+              eq(clarifyingQuestions.userId, userId),
+              eq(clarifyingQuestions.question, question.question)
+            )
+          )
+          .limit(1);
+        
+        if (existingQuestion.length === 0) {
+          // Insert new question
+          await db.insert(clarifyingQuestions).values({
+            question: question.question,
+            status: "pending",
+            userId
+          });
+        }
       }
     }
     
-    return analysis;
+    return analysisResult;
   },
   
   async generateDailySummary(userId: string, date: Date) {

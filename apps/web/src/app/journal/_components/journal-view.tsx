@@ -52,6 +52,7 @@ export function JournalView() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   // Format the selected date for API requests
   const formattedDate = format(selectedDate, "yyyy-MM-dd");
@@ -108,10 +109,25 @@ export function JournalView() {
     queryClient.resetQueries({ queryKey: ["journalEntries", formattedDate] });
   }, [formattedDate, queryClient]);
   
+  // Auto-resize textarea as content grows
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  }, [newEntry]);
+
+  // Auto-focus the textarea when the component mounts
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, []);
+  
   // Create a new journal entry
   const createEntryMutation = useMutation({
-    mutationFn: (params: CreateJournalEntryParams) => createJournalEntry(params),
-    onSuccess: async (data: JournalEntryResponse) => {
+    mutationFn: (data: CreateJournalEntryParams) => createJournalEntry(data),
+    onSuccess: (data: JournalEntryResponse) => {
       // Invalidate the journal entries query to refetch
       queryClient.invalidateQueries({ queryKey: ["journalEntries", formattedDate] });
       
@@ -119,31 +135,41 @@ export function JournalView() {
       setNewEntry("");
       
       // Analyze the new entry with AI
-      try {
-        if (data && data.id) {
-          toast.info("Analyzing your entry...");
-          await analyzeJournalEntry(data.id);
-          // Invalidate priorities to show newly extracted priorities
-          queryClient.invalidateQueries({ queryKey: ["priorities", formattedDate] });
-          // Invalidate clarifying questions
-          queryClient.invalidateQueries({ queryKey: ["clarifyingQuestions"] });
-          toast.success("Analysis complete");
-        }
-      } catch (error) {
-        console.error("Error analyzing journal entry:", error);
-        toast.error("Error analyzing your entry");
-      }
+      analyzeEntryMutation.mutate(data.id);
       
-      toast.success("Journal entry added");
-      
-      // Focus the textarea for continuous journaling
+      // Reset the textarea height
       if (textareaRef.current) {
-        textareaRef.current.focus();
+        textareaRef.current.style.height = "auto";
       }
+      
+      // Auto-focus the textarea after submission
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+        }
+      }, 0);
+      
+      setIsSubmitting(false);
     },
     onError: (error) => {
       console.error("Error creating journal entry:", error);
-      toast.error("Failed to add journal entry");
+      toast.error("Failed to save journal entry");
+      setIsSubmitting(false);
+    }
+  });
+  
+  // Analyze a journal entry with AI
+  const analyzeEntryMutation = useMutation({
+    mutationFn: (entryId: number) => analyzeJournalEntry(entryId),
+    onSuccess: () => {
+      // Invalidate the priorities query to refetch
+      queryClient.invalidateQueries({ queryKey: ["priorities", formattedDate] });
+      // Invalidate the clarifying questions query to refetch
+      queryClient.invalidateQueries({ queryKey: ["clarifyingQuestions"] });
+    },
+    onError: (error) => {
+      console.error("Error analyzing journal entry:", error);
+      // Don't show an error toast here to avoid overwhelming the user
     }
   });
   
@@ -166,13 +192,14 @@ export function JournalView() {
     e.preventDefault();
     
     if (!newEntry.trim()) {
-      toast.error("Journal entry cannot be empty");
       return;
     }
     
+    setIsSubmitting(true);
+    
     createEntryMutation.mutate({
       content: newEntry,
-      date: formattedDate // Use the formatted date string
+      date: formattedDate
     });
   };
   
@@ -182,14 +209,13 @@ export function JournalView() {
       deleteEntryMutation.mutate(id);
     }
   };
-
+  
   // Handle keyboard shortcuts
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // Submit on Ctrl+Enter or Cmd+Enter
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      if (newEntry.trim()) {
-        handleSubmit(e);
-      }
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      handleSubmit(e as unknown as React.FormEvent);
     }
   };
   
@@ -201,72 +227,69 @@ export function JournalView() {
   }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
   
   return (
-    <div className="space-y-8">
-      {/* New entry form - always visible and prominent */}
-      <Card className="border-2 border-primary/20 shadow-md">
-        <CardContent className="pt-6">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <Textarea
-              ref={textareaRef}
-              placeholder="What's on your mind today? Just start typing..."
-              value={newEntry}
-              onChange={(e) => setNewEntry(e.target.value)}
-              onKeyDown={handleKeyDown}
-              className="min-h-[120px] text-base border-none focus-visible:ring-0 focus-visible:ring-offset-0 p-0 placeholder:text-muted-foreground/70 resize-none"
-              autoFocus
-            />
-            <div className="flex justify-between items-center">
-              <div className="text-xs text-muted-foreground">
-                Press Ctrl+Enter to save
+    <div className="space-y-6">
+      {/* Floating input bar - always visible */}
+      <div className="sticky top-4 z-10 mb-8">
+        <form onSubmit={handleSubmit} className="relative">
+          <Card className="shadow-lg border-primary/20">
+            <CardContent className="pt-4 pb-3">
+              <div className="flex items-start gap-2">
+                <Textarea
+                  ref={textareaRef}
+                  value={newEntry}
+                  onChange={(e) => setNewEntry(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="What's on your mind? (Ctrl+Enter to save)"
+                  className="min-h-[60px] resize-none flex-1 focus-visible:ring-primary"
+                  disabled={isSubmitting}
+                />
+                <Button 
+                  type="submit" 
+                  size="icon" 
+                  className="mt-1"
+                  disabled={isSubmitting || !newEntry.trim()}
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </Button>
               </div>
-              <Button 
-                type="submit" 
-                disabled={createEntryMutation.isPending || !newEntry.trim()}
-                className="flex items-center gap-2"
-              >
-                {createEntryMutation.isPending ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Send className="size-4" />
-                    Add Entry
-                  </>
-                )}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-      
-      {/* Date selector and entries header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-medium">Journal Entries</h2>
-        <DatePicker
-          date={selectedDate}
-          setDate={setSelectedDate}
-          className="w-[240px]"
-        />
+            </CardContent>
+          </Card>
+        </form>
       </div>
       
-      <Separator />
+      {/* Date selector */}
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-xl font-semibold text-primary">Journal Entries</h2>
+        <div className="flex items-center gap-2">
+          <DatePicker
+            date={selectedDate}
+            setDate={setSelectedDate}
+          />
+          <Button variant="outline" size="icon">
+            <Calendar className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
       
-      {/* Journal entries list */}
+      {/* Journal entries */}
       <div className="space-y-6">
         {isLoading ? (
           <div className="flex justify-center py-8">
-            <Loader2 className="size-8 animate-spin text-muted-foreground" />
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         ) : isError ? (
           <div className="text-center py-8 text-destructive">
-            Error loading journal entries: {error?.message || "Unknown error"}
+            <p>Error loading journal entries</p>
+            <p className="text-sm">{String(error)}</p>
           </div>
         ) : journalEntries.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
-            <div className="mb-2">No journal entries for {format(selectedDate, "MMMM d, yyyy")}</div>
-            <div className="text-sm">Start writing above to capture your thoughts</div>
+          <div className="text-center py-8 text-muted-foreground">
+            <p>No journal entries for this date</p>
+            <p className="text-sm">Start writing to create your first entry</p>
           </div>
         ) : (
           <div>

@@ -13,7 +13,7 @@ interface UpdateJournalEntryParams {
 // Get all journal entries with pagination
 export async function getJournalEntries(limit = 20, offset = 0) {
   const client = await getApiClient();
-  const query: Record<string, string> = {
+  const query = {
     limit: String(limit),
     offset: String(offset)
   };
@@ -25,7 +25,7 @@ export async function getJournalEntries(limit = 20, offset = 0) {
 // Get journal entries by date with pagination
 export async function getJournalEntriesByDate(date: string, limit = 20, offset = 0) {
   const client = await getApiClient();
-  const query: Record<string, string> = {
+  const query = {
     date,
     limit: String(limit),
     offset: String(offset)
@@ -47,8 +47,12 @@ export async function getJournalEntry(id: number) {
 // Create a new journal entry
 export async function createJournalEntry(params: CreateJournalEntryParams) {
   const client = await getApiClient();
+  // The API expects a Date object, so we need to convert the string to a Date
   const response = await client.journal.$post({ 
-    json: params
+    json: {
+      content: params.content,
+      date: new Date(params.date)
+    }
   });
   return response.json();
 }

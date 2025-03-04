@@ -21,6 +21,7 @@ export function PrioritiesPanel() {
   const queryClient = useQueryClient();
   const [newPriority, setNewPriority] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isAddingPriority, setIsAddingPriority] = useState(false);
   
   // Get today's date for API requests
   const today = format(new Date(), "yyyy-MM-dd");
@@ -45,12 +46,14 @@ export function PrioritiesPanel() {
       
       // Clear the input field
       setNewPriority("");
+      setIsAddingPriority(false);
       
       toast.success("Priority added");
     },
     onError: (error) => {
       console.error("Error creating priority:", error);
       toast.error("Failed to add priority");
+      setIsAddingPriority(false);
     }
   });
   
@@ -99,7 +102,7 @@ export function PrioritiesPanel() {
     try {
       await getDailySummary();
       queryClient.invalidateQueries({ queryKey: ["priorities", today] });
-      toast.success("Priorities generated from your journal entries");
+      toast.success("Priorities generated");
     } catch (error) {
       console.error("Error generating priorities:", error);
       toast.error("Failed to generate priorities");
@@ -113,201 +116,192 @@ export function PrioritiesPanel() {
     e.preventDefault();
     
     if (!newPriority.trim()) {
-      toast.error("Priority cannot be empty");
       return;
     }
     
     createPriorityMutation.mutate({
       content: newPriority,
       date: new Date(today),
-      completed: false
+      rank: priorities.length + 1
     });
   };
   
-  // Handle priority completion toggle
-  const handleToggleCompletion = (id: number, completed: boolean) => {
-    toggleCompletionMutation.mutate({ id });
-  };
+  // Sort priorities by rank
+  const sortedPriorities = [...priorities].sort((a, b) => a.rank - b.rank);
   
-  // Handle priority rank change
-  const handleRankChange = (id: number, direction: "up" | "down") => {
-    const newRank = direction === "up" ? -1 : 1; // Adjust rank based on direction
-    updateRankMutation.mutate({ id, rank: newRank });
-  };
-  
-  // Handle priority deletion
-  const handleDelete = (id: number) => {
-    deletePriorityMutation.mutate({ id });
-  };
-  
-  // Filter priorities by completion status
-  const completedPriorities = priorities.filter(p => p.completed);
-  const pendingPriorities = priorities.filter(p => !p.completed);
+  // Count completed priorities
+  const completedCount = priorities.filter(p => p.completed).length;
+  const totalCount = priorities.length;
+  const progressPercentage = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
   
   return (
-    <Card className="border-2 border-primary/10">
+    <Card className="shadow-sm">
       <CardHeader className="pb-3">
-        <CardTitle className="text-xl flex items-center justify-between">
-          <span>Daily Priorities</span>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleGeneratePriorities}
-            disabled={isGenerating}
-            title="Generate priorities from journal entries"
-            className="text-primary relative"
-          >
-            {isGenerating ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <>
-                <Sparkles className="size-4" />
-                <span className="sr-only">Generate priorities</span>
-                <motion.span 
-                  className="absolute -top-1 -right-1 size-2 bg-primary rounded-full"
-                  initial={{ scale: 0 }}
-                  animate={{ scale: [0, 1.5, 1] }}
-                  transition={{ duration: 1, repeat: Infinity, repeatType: "reverse" }}
-                />
-              </>
-            )}
-          </Button>
-        </CardTitle>
-      </CardHeader>
-      
-      <CardContent className="space-y-4">
-        {/* New priority form */}
-        <form onSubmit={handleSubmit} className="flex gap-2">
-          <Input
-            placeholder="Add a new priority..."
-            value={newPriority}
-            onChange={(e) => setNewPriority(e.target.value)}
-            className="flex-1"
-          />
-          <Button 
-            type="submit" 
-            size="icon"
-            disabled={createPriorityMutation.isPending || !newPriority.trim()}
-          >
-            {createPriorityMutation.isPending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Plus className="size-4" />
-            )}
-          </Button>
-        </form>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg font-semibold">Today's Priorities</CardTitle>
+          <div className="flex gap-1">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-8 w-8" 
+              onClick={() => setIsAddingPriority(true)}
+              disabled={isAddingPriority}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-8 w-8" 
+              onClick={handleGeneratePriorities}
+              disabled={isGenerating}
+            >
+              <Sparkles className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
         
-        {/* Priorities list */}
-        {isLoading ? (
-          <div className="flex justify-center py-6">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : isError ? (
-          <div className="text-center py-6 text-destructive">
-            Error loading priorities: {error?.message || "Unknown error"}
-          </div>
-        ) : priorities.length === 0 ? (
-          <div className="text-center py-6 text-muted-foreground">
-            <p className="mb-2">No priorities for today</p>
-            <p className="text-sm">Add priorities manually or generate them from your journal entries</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {/* Pending priorities */}
-            {pendingPriorities.length > 0 && (
-              <div className="space-y-2">
-                <div className="text-sm font-medium text-muted-foreground">
-                  In Progress ({pendingPriorities.length})
-                </div>
-                <ul className="space-y-2">
-                  <AnimatePresence>
-                    {pendingPriorities.map((priority) => (
-                      <motion.li 
-                        key={priority.id} 
-                        className="flex items-start gap-2 group"
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <Checkbox
-                          checked={priority.completed}
-                          onCheckedChange={() => handleToggleCompletion(priority.id, priority.completed)}
-                          className="mt-1"
-                        />
-                        <div className="flex-1 text-sm">{priority.content}</div>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-6"
-                            onClick={() => handleRankChange(priority.id, "up")}
-                          >
-                            <ArrowUp className="size-3" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-6"
-                            onClick={() => handleRankChange(priority.id, "down")}
-                          >
-                            <ArrowDown className="size-3" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-6 text-destructive"
-                            onClick={() => handleDelete(priority.id)}
-                          >
-                            <Trash2 className="size-3" />
-                          </Button>
-                        </div>
-                      </motion.li>
-                    ))}
-                  </AnimatePresence>
-                </ul>
-              </div>
-            )}
-            
-            {/* Completed priorities */}
-            {completedPriorities.length > 0 && (
-              <div className="space-y-2">
-                <div className="text-sm font-medium text-muted-foreground">
-                  Completed ({completedPriorities.length})
-                </div>
-                <ul className="space-y-2">
-                  <AnimatePresence>
-                    {completedPriorities.map((priority) => (
-                      <motion.li 
-                        key={priority.id} 
-                        className="flex items-start gap-2 group opacity-60"
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 0.6, y: 0 }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <Checkbox
-                          checked={priority.completed}
-                          onCheckedChange={() => handleToggleCompletion(priority.id, priority.completed)}
-                          className="mt-1"
-                        />
-                        <div className="flex-1 text-sm line-through">{priority.content}</div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-6 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={() => handleDelete(priority.id)}
-                        >
-                          <Trash2 className="size-3" />
-                        </Button>
-                      </motion.li>
-                    ))}
-                  </AnimatePresence>
-                </ul>
-              </div>
-            )}
+        {/* Progress bar */}
+        {totalCount > 0 && (
+          <div className="mt-2">
+            <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
+              <motion.div 
+                className="h-full bg-primary rounded-full"
+                initial={{ width: 0 }}
+                animate={{ width: `${progressPercentage}%` }}
+                transition={{ duration: 0.5 }}
+              />
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground text-right">
+              {completedCount}/{totalCount} completed
+            </div>
           </div>
         )}
+      </CardHeader>
+      
+      <CardContent className="pb-3">
+        <AnimatePresence mode="popLayout">
+          {/* Add new priority form */}
+          {isAddingPriority && (
+            <motion.form
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              onSubmit={handleSubmit}
+              className="mb-3"
+            >
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Add a new priority..."
+                  value={newPriority}
+                  onChange={(e) => setNewPriority(e.target.value)}
+                  className="flex-1"
+                  autoFocus
+                />
+                <Button 
+                  type="submit" 
+                  size="icon" 
+                  disabled={createPriorityMutation.isPending || !newPriority.trim()}
+                >
+                  {createPriorityMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Check className="h-4 w-4" />
+                  )}
+                </Button>
+                <Button 
+                  type="button" 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setIsAddingPriority(false)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </motion.form>
+          )}
+          
+          {/* Loading state */}
+          {isLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : isError ? (
+            <div className="text-center py-4 text-destructive text-sm">
+              Error loading priorities
+            </div>
+          ) : sortedPriorities.length === 0 ? (
+            <div className="text-center py-6 text-muted-foreground text-sm">
+              {isGenerating ? (
+                <div className="flex flex-col items-center gap-2">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <p>Generating priorities...</p>
+                </div>
+              ) : (
+                <div>
+                  <p>No priorities for today</p>
+                  <p className="text-xs mt-1">Add manually or generate from your journal</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <ul className="space-y-2">
+              {sortedPriorities.map((priority) => (
+                <motion.li 
+                  key={priority.id}
+                  layout
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className={`flex items-start gap-2 p-2 rounded-md ${
+                    priority.completed ? "bg-secondary/30" : "bg-card"
+                  }`}
+                >
+                  <Checkbox 
+                    checked={priority.completed}
+                    onCheckedChange={() => toggleCompletionMutation.mutate({ id: priority.id })}
+                    className="mt-1"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm ${priority.completed ? "line-through text-muted-foreground" : ""}`}>
+                      {priority.content}
+                    </p>
+                  </div>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => updateRankMutation.mutate({ id: priority.id, rank: priority.rank - 1 })}
+                      disabled={priority.rank <= 1}
+                    >
+                      <ArrowUp className="h-3 w-3" />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => updateRankMutation.mutate({ id: priority.id, rank: priority.rank + 1 })}
+                      disabled={priority.rank >= sortedPriorities.length}
+                    >
+                      <ArrowDown className="h-3 w-3" />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-6 w-6 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => deletePriorityMutation.mutate({ id: priority.id })}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </motion.li>
+              ))}
+            </ul>
+          )}
+        </AnimatePresence>
       </CardContent>
     </Card>
   );
